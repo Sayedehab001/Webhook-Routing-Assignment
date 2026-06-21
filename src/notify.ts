@@ -47,7 +47,6 @@ export async function notifyDiscord(
         description: reason,
         color: DESTINATION_COLOR[destination],
         fields: [
-          { name: "Application ID", value: app.application_id, inline: true },
           { name: "Destination", value: destination, inline: true },
           { name: "Duplicate", value: duplicateStatus, inline: true },
           { name: "Business name", value: `${countryLabel} - ${app.business_name}`, inline: false },
@@ -80,25 +79,25 @@ export async function notifyDiscord(
       return { delivered: true, status: res.status };
     }
 
-    await queueFailedNotification(env, app.application_id, payload, `status ${res.status}`);
+    await queueFailedNotification(env, app.contact_email, payload, `status ${res.status}`);
     return { delivered: false, status: res.status, error: `webhook returned ${res.status}` };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await queueFailedNotification(env, app.application_id, payload, message);
+    await queueFailedNotification(env, app.contact_email, payload, message);
     return { delivered: false, error: message };
   }
 }
 
 async function queueFailedNotification(
   env: Env,
-  applicationId: string,
+  contactEmail: string,
   payload: unknown,
   error: string
 ): Promise<void> {
   try {
     await env.APPLICATIONS_KV.put(
-      `failed_notification:${applicationId}:${Date.now()}`,
-      JSON.stringify({ payload, error, failed_at: new Date().toISOString() }),
+      `failed_notification:${Date.now()}:${crypto.randomUUID()}`,
+      JSON.stringify({ contact_email: contactEmail, payload, error, failed_at: new Date().toISOString() }),
       { expirationTtl: 60 * 60 * 24 * 7 } // keep around for a week
     );
   } catch {

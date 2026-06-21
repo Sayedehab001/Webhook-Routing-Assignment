@@ -3,10 +3,11 @@ import type { Destination, Env } from "./types";
 const DELIVERY_ENABLED_KEY = "settings:delivery_enabled";
 
 export interface DashboardRecord {
-  application_id: string;
   business_name: string;
   contact_email: string;
   body_text: string | null;
+  duplicate?: boolean;
+  duplicate_reason?: string;
   country: {
     raw: string | null;
     resolved: string | null;
@@ -43,6 +44,7 @@ export interface DashboardData {
     delivered: number;
     dry_runs: number;
     failed_notifications: number;
+    duplicates: number;
   };
   routes: DashboardSummaryItem[];
   countries: DashboardSummaryItem[];
@@ -100,6 +102,7 @@ export async function getDashboardData(env: Env): Promise<DashboardData> {
   let delivered = 0;
   let dryRuns = 0;
   let failedNotifications = 0;
+  let duplicates = 0;
 
   for (const record of records) {
     if (record.notification?.skipped) {
@@ -108,6 +111,9 @@ export async function getDashboardData(env: Env): Promise<DashboardData> {
       delivered += 1;
     } else {
       failedNotifications += 1;
+    }
+    if (record.duplicate) {
+      duplicates += 1;
     }
   }
 
@@ -118,6 +124,7 @@ export async function getDashboardData(env: Env): Promise<DashboardData> {
       delivered,
       dry_runs: dryRuns,
       failed_notifications: failedNotifications,
+      duplicates,
     },
     routes: summarizeBy(records, (record) => record.routing?.destination ?? "unknown"),
     countries: summarizeBy(records, (record) => {

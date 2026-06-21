@@ -58,7 +58,6 @@ export function renderApplicationPage(): string {
             <label>Country *<input name="country_raw" placeholder="UAE, Egypt, Germany…" required /><span class="field-note">Enter your country name or code</span></label>
             <label>Phone<input name="phone" placeholder="+971 50 123 4567" /></label>
             <label>Monthly orders *<input name="monthly_orders" type="number" min="0" placeholder="1200" required /></label>
-            <label>Application ID *<input name="application_id" placeholder="e.g. partner-2024-001" required /></label>
             <label class="span-2">Tell us about your business *<textarea name="body_text" placeholder="Describe your business, what you sell, and why you'd like to partner with us…" required></textarea></label>
           </div>
           <button class="button submit-btn" type="submit">Submit application</button>
@@ -91,7 +90,6 @@ export function renderApplicationPage(): string {
         resultPanel.classList.remove('visible');
         const fd = new FormData(form);
         const payload = {
-          application_id: fd.get('application_id'),
           business_name: fd.get('business_name'),
           contact_email: fd.get('contact_email'),
           body: fd.get('body_text'),
@@ -113,8 +111,9 @@ export function renderApplicationPage(): string {
           if (isError) {
             resultBody.innerHTML = row('Error', json.message || json.error || 'Something went wrong');
           } else {
+            resultBadge.textContent = json.duplicate ? 'Received (duplicate)' : 'Received';
             resultBody.innerHTML =
-              row('Application ID', json.application_id) +
+              row('Status', json.duplicate ? 'Duplicate — we already have this on file' : 'New submission') +
               row('Business', json.business_name) +
               row('Country', json.country?.name || json.country?.raw || '—') +
               row('Submitted', new Date().toLocaleString());

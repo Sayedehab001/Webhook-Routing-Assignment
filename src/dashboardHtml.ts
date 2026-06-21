@@ -54,7 +54,6 @@ export function renderDashboardPage(): string {
             <div class="muted">Push a synthetic JSON payload through the webhook pipeline for testing.</div>
             <form id="sampleForm">
               <div class="form-grid">
-                <label>Application ID<input name="application_id" value="demo-" /></label>
                 <label>Business name<input name="business_name" value="Demo Commerce" /></label>
                 <label>Contact email<input name="contact_email" value="demo@example.com" /></label>
                 <label>Monthly orders<input name="monthly_orders" type="number" min="0" value="1200" /></label>
@@ -120,6 +119,7 @@ export function renderDashboardPage(): string {
         const items = [
           ['Processed', data.totals.processed, 'All stored records'],
           ['Delivered', data.totals.delivered, 'Live Discord posts sent'],
+          ['Duplicates', data.totals.duplicates, 'Same email + body seen before'],
           ['Dry runs', data.totals.dry_runs, 'Delivery was off'],
           ['Failed', data.totals.failed_notifications, 'Webhook failed after retries'],
         ];
@@ -138,8 +138,10 @@ export function renderDashboardPage(): string {
       function renderRecent(recent) {
         recentList.innerHTML = recent.length
           ? recent.map((r,i) => {
-              const dupTag = r.duplicate ? '<span class="tag review" style="margin-left:6px;font-size:11px;">dup</span>' : '';
-              return '<article class="recent-card" data-index="'+i+'"><div class="recent-top"><div><div class="recent-title">'+esc(r.business_name)+dupTag+'</div><div class="muted">'+esc(r.country?.name||r.country?.raw||'Unresolved')+'</div></div><span class="tag '+esc(r.routing.destination)+'">'+esc(r.routing.destination)+'</span></div><div class="muted" style="margin-top:10px;">'+esc(r.application_id)+' · '+esc(r.processed_at)+'</div></article>';
+              const dupTag = r.duplicate
+                ? '<span class="tag review" style="margin-left:6px;font-size:11px;" title="'+esc(r.duplicate_reason||'')+'">duplicate</span>'
+                : '<span class="tag default" style="margin-left:6px;font-size:11px;">fresh</span>';
+              return '<article class="recent-card" data-index="'+i+'"><div class="recent-top"><div><div class="recent-title">'+esc(r.business_name)+dupTag+'</div><div class="muted">'+esc(r.country?.name||r.country?.raw||'Unresolved')+'</div></div><span class="tag '+esc(r.routing.destination)+'">'+esc(r.routing.destination)+'</span></div><div class="muted" style="margin-top:10px;">'+esc(r.contact_email)+' · '+esc(r.processed_at)+'</div></article>';
             }).join('')
           : '<div class="muted">No submissions yet.</div>';
         recentList.querySelectorAll('.recent-card').forEach(card => {
@@ -148,13 +150,13 @@ export function renderDashboardPage(): string {
             if (!r) return;
             state.selected = r;
             jsonView.textContent = JSON.stringify(r, null, 2);
-            jsonMeta.textContent = r.application_id;
+            jsonMeta.textContent = r.contact_email + (r.duplicate ? ' · duplicate' : ' · fresh');
           });
         });
         if (!state.selected && recent[0]) {
           state.selected = recent[0];
           jsonView.textContent = JSON.stringify(recent[0], null, 2);
-          jsonMeta.textContent = recent[0].application_id;
+          jsonMeta.textContent = recent[0].contact_email + (recent[0].duplicate ? ' · duplicate' : ' · fresh');
         }
       }
 
@@ -193,7 +195,6 @@ export function renderDashboardPage(): string {
         const fd = new FormData(sampleForm);
         const p  = Object.fromEntries(fd.entries());
         const body = {
-          application_id: String(p.application_id||'demo')+'-'+Date.now(),
           business_name:  String(p.business_name||'Demo Commerce'),
           contact_email:  String(p.contact_email||'demo@example.com'),
           body:           String(p.body_text||''),
@@ -206,7 +207,7 @@ export function renderDashboardPage(): string {
         const json = await res.json();
         state.selected = json;
         jsonView.textContent = JSON.stringify(json,null,2);
-        jsonMeta.textContent = res.ok ? body.application_id : 'request failed';
+        jsonMeta.textContent = res.ok ? (body.contact_email + (json.duplicate ? ' · duplicate' : ' · fresh')) : 'request failed';
         await loadDashboard();
       });
 

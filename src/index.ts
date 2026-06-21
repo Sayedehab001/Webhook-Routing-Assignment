@@ -11,7 +11,7 @@ import { detectDuplicateApplication, recordSenderHistory } from "./duplicate";
 
 const app = new Hono<{ Bindings: Env }>();
 
-const IDEMPOTENCY_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
+const RECORD_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
 app.get("/", (c) => c.json({ service: "partner-webhook", status: "ok" }));
 app.get("/health", (c) => c.json({ status: "ok", time: new Date().toISOString() }));
@@ -50,30 +50,21 @@ app.post("/webhook/partner-application", async (c) => {
   }
   const application = validation.data;
 
-  // ── Idempotency: same application_id = skip entirely (true exact replay) ──
-  const kvKey = `app:${application.application_id}`;
-  const existing = await env.APPLICATIONS_KV.get(kvKey);
-  if (existing) {
-    return c.json({
-      status: "duplicate",
-      application_id: application.application_id,
-      message: "This application_id was already processed. No action was taken.",
-      previous_result: JSON.parse(existing),
-    }, 200);
-  }
-
   // ── Enrich country first so duplicate check can compare ISO2 codes ────────
   const enriched = await enrichCountry(application.country_raw, application.phone, env);
   const resolvedIso2 = enriched.iso2;
 
-  // ── Duplicate detection (content-level, not ID-level) ─────────────────────
+  // ── Duplicate detection: same contact_email + same body_text = duplicate.
+  //    A different country on the same email/body is treated as fresh. This
+  //    never blocks the request — it only labels it, see below. ────────────
   const duplicateDecision = await detectDuplicateApplication(env, application, resolvedIso2);
 
-  // ── Route ─────────────────────────────────────────────────────────────────
+  // ── Route (unaffected by duplicate status) ─────────────────────────────────
   const decision = decideDestination(enriched, application.monthly_orders);
   const deliveryEnabled = await getDeliveryEnabled(env);
 
-  // ── Notify — always send; duplicates get a warning label on Discord ────────
+  // ── Notify — ALWAYS sent to Discord, duplicate or fresh; the embed just
+  //    carries a "duplicate" vs "fresh" label so the team can see at a glance ──
   const notifyResult = await notifyDiscord(
     env, application, enriched, decision.destination, decision.reason,
     deliveryEnabled,
@@ -81,16 +72,12 @@ app.post("/webhook/partner-application", async (c) => {
   );
 
   const result = {
-    // Always "processed" — the duplicate flag carries the detail
     status: "processed",
-    application_id: application.application_id,
     business_name: application.business_name,
     contact_email: application.contact_email,
     body_text: application.body_text,
     duplicate: duplicateDecision.isDuplicate,
     duplicate_reason: duplicateDecision.reason,
-    matched_application_id: duplicateDecision.matchedApplicationId ?? null,
-    similarity_score: duplicateDecision.similarityScore ?? null,
     country: {
       raw: application.country_raw,
       resolved: enriched.iso2,
@@ -106,7 +93,11 @@ app.post("/webhook/partner-application", async (c) => {
     processed_at: new Date().toISOString(),
   };
 
-  await env.APPLICATIONS_KV.put(kvKey, JSON.stringify(result), { expirationTtl: IDEMPOTENCY_TTL_SECONDS });
+  // Storage key is an internal, generated identifier — never surfaced to
+  // the caller or the UI. Duplicate detection is keyed off email + body
+  // (see duplicate.ts), not off this key.
+  const kvKey = `app:${crypto.randomUUID()}`;
+  await env.APPLICATIONS_KV.put(kvKey, JSON.stringify(result), { expirationTtl: RECORD_TTL_SECONDS });
   await recordSenderHistory(env, application, resolvedIso2);
 
   return c.json(result, 200);

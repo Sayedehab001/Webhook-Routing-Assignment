@@ -51,7 +51,7 @@ h1 { margin: 0; font-size: clamp(32px, 4vw, 56px); line-height: 0.96; max-width:
 .slider::before { content: ""; position: absolute; width: 28px; height: 28px; left: 4px; top: 4px; border-radius: 999px; background: white; transition: 180ms ease; }
 input:checked + .slider { background: linear-gradient(135deg, rgba(52, 211, 153, 0.28), rgba(125, 211, 252, 0.35)); }
 input:checked + .slider::before { transform: translateX(30px); }
-.grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 20px 0; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin: 20px 0; }
 .stat { padding: 18px; min-height: 120px; }
 .stat-label { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
 .stat-value { font-size: clamp(28px, 3vw, 40px); font-weight: 800; letter-spacing: -0.04em; }

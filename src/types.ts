@@ -9,7 +9,6 @@ export interface Env {
 }
 
 export interface RawApplicationPayload {
-  application_id?: unknown;
   business_name?: unknown;
   contact_email?: unknown;
   body?: unknown;
@@ -21,7 +20,6 @@ export interface RawApplicationPayload {
 }
 
 export interface ValidatedApplication {
-  application_id: string;
   business_name: string;
   contact_email: string;
   body_text: string | null;

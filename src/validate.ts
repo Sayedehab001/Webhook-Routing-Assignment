@@ -11,9 +11,6 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export function validatePayload(raw: RawApplicationPayload): ValidationResult {
   const errors: string[] = [];
 
-  const application_id = typeof raw.application_id === "string" ? raw.application_id.trim() : "";
-  if (!application_id) errors.push("application_id is required and must be a non-empty string");
-
   const business_name = typeof raw.business_name === "string" ? raw.business_name.trim() : "";
   if (!business_name) errors.push("business_name is required and must be a non-empty string");
 
@@ -54,7 +51,6 @@ export function validatePayload(raw: RawApplicationPayload): ValidationResult {
     ok: true,
     errors: [],
     data: {
-      application_id,
       business_name,
       contact_email,
       body_text,

@@ -1,15 +1,11 @@
 import type { Env, ValidatedApplication } from "./types";
-import { isDuplicateByAi } from "./externalValidation";
 
 const APPLICATION_PREFIX = "app:";
 const MAX_HISTORY_ENTRIES = 50;
-const AI_DUPLICATE_THRESHOLD = 0.9;
 
 export interface EmailHistoryEntry {
-  application_id: string;
   contact_email: string;
   body_text: string | null;
-
   country_iso2: string | null;
   processed_at: string;
 }
@@ -17,8 +13,6 @@ export interface EmailHistoryEntry {
 export interface DuplicateDecision {
   isDuplicate: boolean;
   reason: string;
-  matchedApplicationId?: string;
-  similarityScore?: number | null;
 }
 
 function normalizeEmail(email: string): string {
@@ -50,7 +44,6 @@ async function loadHistory(env: Env, email: string): Promise<EmailHistoryEntry[]
             ? parsed.country_iso2
             : (parsed.country?.resolved ?? null);
         matched.push({
-          application_id: String(parsed.application_id ?? ""),
           contact_email: parsed.contact_email,
           body_text: typeof parsed.body_text === "string" ? parsed.body_text : null,
           country_iso2: iso2,
@@ -81,17 +74,22 @@ async function saveHistory(env: Env, email: string, history: EmailHistoryEntry[]
 }
 
 /**
- * Duplicate rules:
- *   1. No prior history → fresh.
- *   2. Same body + DIFFERENT country → fresh (new market, genuine request).
- *   3. Same body + same (or unknown) country → duplicate.
- *   4. AI score ≥ threshold + different country → fresh.
- *   5. AI score ≥ threshold + same (or unknown) country → duplicate.
- *   6. Score below threshold / no score → fresh.
+ * Duplicate rules — driven purely by contact_email + body_text, no AI call:
+ *   1. No prior submission from this email → fresh.
+ *   2. Same email, identical body, DIFFERENT country → fresh (new market,
+ *      genuine request — e.g. they're now applying to operate in Egypt
+ *      instead of the UAE).
+ *   3. Same email, identical body, same (or unknown) country → duplicate.
+ *   4. Same email, different body → fresh (a new message from a known
+ *      sender isn't automatically a duplicate).
  *
  * Country comparison treats null/null as "unknown on both sides" and does
  * NOT treat two unknowns as matching — we'd rather false-negative (let a
  * possible duplicate through) than false-positive (block a real request).
+ *
+ * Note: regardless of the outcome here, the caller still sends every
+ * request to Discord — this function only decides the "duplicate" label
+ * attached to it, it never blocks delivery.
  */
 export async function detectDuplicateApplication(
   env: Env,
@@ -104,13 +102,12 @@ export async function detectDuplicateApplication(
   ];
 
   if (history.length === 0) {
-    return { isDuplicate: false, reason: "no previous sender history" };
+    return { isDuplicate: false, reason: "no previous submission from this email" };
   }
 
   const currentBody = normalizeBody(application.body_text);
   const currentIso2 = resolvedIso2;
 
-  // ── Exact body match ──────────────────────────────────────────────────────
   const exactMatch = history.find((e) => normalizeBody(e.body_text) === currentBody);
   if (exactMatch) {
     const countryChanged =
@@ -118,66 +115,18 @@ export async function detectDuplicateApplication(
     if (countryChanged) {
       return {
         isDuplicate: false,
-        reason: `same body but country changed ${exactMatch.country_iso2} → ${currentIso2} — treated as fresh`,
-        matchedApplicationId: exactMatch.application_id,
-        similarityScore: 1,
+        reason: `same email and body but country changed ${exactMatch.country_iso2} → ${currentIso2} — treated as fresh`,
       };
     }
     return {
       isDuplicate: true,
-      reason: `same contact_email, identical body, same country (${currentIso2 ?? "unknown"})`,
-      matchedApplicationId: exactMatch.application_id,
-      similarityScore: 1,
+      reason: `same email, identical body, same country (${currentIso2 ?? "unknown"})`,
     };
-  }
-
-  if (!currentBody) {
-    return { isDuplicate: false, reason: "no body text provided for comparison" };
-  }
-
-  // ── AI similarity check ───────────────────────────────────────────────────
-  const candidates = history
-    .slice(0, 5)
-    .map((e) => ({ body: normalizeBody(e.body_text), entry: e }))
-    .filter((x): x is { body: string; entry: EmailHistoryEntry } => Boolean(x.body));
-
-  let bestScore: number | null = null;
-  let bestMatch: EmailHistoryEntry | null = null;
-
-  for (const { body: candidateBody, entry } of candidates) {
-    const aiResult = await isDuplicateByAi(candidateBody, currentBody, env);
-    if (aiResult.score === null) continue;
-    if (bestScore === null || aiResult.score > bestScore) {
-      bestScore = aiResult.score;
-      bestMatch = entry;
-    }
-    if (aiResult.score >= AI_DUPLICATE_THRESHOLD) {
-      const countryChanged =
-        currentIso2 && entry.country_iso2 && currentIso2 !== entry.country_iso2;
-      if (countryChanged) {
-        return {
-          isDuplicate: false,
-          reason: `similar body (score ${aiResult.score.toFixed(3)}) but country changed ${entry.country_iso2} → ${currentIso2} — treated as fresh`,
-          matchedApplicationId: entry.application_id,
-          similarityScore: aiResult.score,
-        };
-      }
-      return {
-        isDuplicate: true,
-        reason: `same contact_email, AI similarity ${aiResult.score.toFixed(3)}, same country (${currentIso2 ?? "unknown"})`,
-        matchedApplicationId: bestMatch?.application_id,
-        similarityScore: aiResult.score,
-      };
-    }
   }
 
   return {
     isDuplicate: false,
-    reason:
-      bestScore === null
-        ? "no AI similarity result available"
-        : `similarity ${bestScore.toFixed(3)} below threshold`,
-    similarityScore: bestScore,
+    reason: "same email but different body — treated as fresh",
   };
 }
 
@@ -188,7 +137,6 @@ export async function recordSenderHistory(
 ): Promise<void> {
   const history = await loadHistory(env, application.contact_email);
   history.unshift({
-    application_id: application.application_id,
     contact_email: application.contact_email,
     body_text: normalizeBody(application.body_text),
     country_iso2: resolvedIso2 ?? null,
