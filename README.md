@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🤝 Partner Application Webhook
+# Partner Application Webhook
 
 **A production-ready Cloudflare Worker that receives partner applications, enriches country data, detects duplicates with AI, routes to Discord channels, and provides an admin dashboard.**
 
